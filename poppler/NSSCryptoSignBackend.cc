@@ -619,7 +619,7 @@ static std::unique_ptr<X509CertificateInfo> getCertificateInfoFromCERT(CERTCerti
     certInfo->setSubjectInfo(getEntityInfo(&cert->subject));
 
     // nickname (as a handle to refer to the CERT later)
-    certInfo->setNickName(GooString(cert->dbnickname));
+    certInfo->setNickName(GooString(cert->dbnickname != NULL ? cert->dbnickname : cert->nickname));
 
     // public key info
     X509CertificateInfo::PublicKeyInfo pkInfo;
@@ -1253,6 +1253,18 @@ std::vector<std::unique_ptr<X509CertificateInfo>> NSSCryptoSignBackend::getAvail
     if (slotList) {
         for (PK11SlotListElement *slotElement = slotList->head; slotElement; slotElement = slotElement->next) {
             PK11SlotInfo *pSlot = slotElement->slot;
+
+            CERTCertList *certList = PK11_ListCertsInSlot(pSlot);
+            if (certList) {
+                for (CERTCertListNode *curCert = CERT_LIST_HEAD(certList); !CERT_LIST_END(curCert, certList) && curCert != nullptr; curCert = CERT_LIST_NEXT(curCert)) {
+                    if (CERT_IsUserCert(curCert->cert) && (curCert->cert->keyUsage & KU_NON_REPUDIATION)) {
+                        certsList.push_back(getCertificateInfoFromCERT(curCert->cert));
+                    }
+                }
+                CERT_DestroyCertList(certList);
+                continue;
+            }
+
             if (PK11_NeedLogin(pSlot)) {
                 SECStatus nRet = PK11_Authenticate(pSlot, PR_TRUE, nullptr);
                 // PK11_Authenticate may fail in case the a slot has not been initialized.
